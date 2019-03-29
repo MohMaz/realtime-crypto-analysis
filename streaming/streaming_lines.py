@@ -10,6 +10,7 @@ from pyspark.sql.functions import unix_timestamp
 spark = SparkSession.builder.appName('example code').getOrCreate()
 assert spark.version >= '2.3' # make sure we have Spark 2.3+
 spark.sparkContext.setLogLevel('WARN')
+from datetime import datetime
 
 
 def main():
@@ -30,19 +31,15 @@ def main():
     path= outdir = cwd +'/data/tmp'
     lines = spark.readStream.schema(userSchema).format('csv') \
             .option('path', path).load()
-    
-    #changing the Date from string tyoe to DateType : the following
-    #code works in static pyspark but did not work in streaming
-    
-#     func =  udf (lambda x: datetime.strptime(x, '%b %d, %Y'), DateType())
-#     lines = lines.withColumn('lines', func(functions.col('Date')))
-
+            
+    lines.printSchema()
+    lines=lines.withColumn('timestamp',  functions.to_date(lines['Date'], "MMM d, yyyy"))
 
     
     lines.printSchema()
     stream = lines.writeStream.format('console') \
             .outputMode('update').start()
-    stream.awaitTermination(3600)
+    stream.awaitTermination()
     
 
 
