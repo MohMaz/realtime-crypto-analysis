@@ -4,11 +4,13 @@ import sys
 assert sys.version_info >= (3, 5)  # make sure we have Python 3.5+
 
 from pyspark.sql import SparkSession, types
-from pyspark.sql.functions import to_json, struct
+from pyspark.sql.functions import to_json, struct, to_timestamp
 
 spark = SparkSession.builder.appName('example code').getOrCreate()
 assert spark.version >= '2.3'  # make sure we have Spark 2.3+
 spark.sparkContext.setLogLevel('WARN')
+kafka_server = '199.60.17.212:9092'
+kafka_topic = 'price-demo'
 
 
 def main():
@@ -23,27 +25,29 @@ def main():
         types.StructField('Time', types.StringType(), False),
         types.StructField('Date', types.StringType(), False),
     ])
+
     # column_list =
     cwd = os.getcwd()
     print(cwd)
-    path = os.path.join(cwd, 'streaming/data/')
+    path = os.path.join(cwd, 'streaming/data/price')
     lines = spark.readStream.schema(priceSchema).format('csv') \
         .option('path', path).load()
 
-    lines.printSchema()
+    lines = lines.withColumn('value_json', to_json(struct(lines.columns)))
+    lines = lines.selectExpr("CAST(id AS STRING) as key", "CAST(value_json AS STRING) as value")
 
-    # lines = lines.withColumn('timestamp', functions.to_date(lines['Date'], "MMM d, yyyy"))
+    # stream = lines.writeStream.format('console').option('truncate', False) \
+    #     .outputMode('update').start()
+    stream = lines.writeStream \
+        .format("kafka") \
+        .option("kafka.bootstrap.servers", kafka_server) \
+        .option("topic", kafka_topic) \
+        .option("checkpointLocation", "./spark-checkpoints/price") \
+        .start()
 
-    # lines.printSchema()
-    # lines = lines.withColumn('msg', to_json)
-
-    lines = lines.select(to_json(struct(lines.columns)))
-    lines = lines.withColumnRenamed(lines.columns[0], 'msg')
-
-    stream = lines.writeStream.format('console').option('truncate', False) \
-        .outputMode('update').start()
     stream.awaitTermination()
 
 
 if __name__ == '__main__':
     main()
+# spark-submit --packages org.apache.spark:spark-sql-kafka-0-10_2.11:2.4.0 data_loading/event_stream_generator.py
